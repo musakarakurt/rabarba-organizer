@@ -154,31 +154,22 @@
             try {
                 const response = await fetch('/load_episodes');
                 
-                // Response tipini kontrol et
-                const contentType = response.headers.get('content-type');
-                let data;
-                
-                if (contentType && contentType.includes('application/json')) {
-                    data = await response.json();
-                } else {
-                    // JSON değilse, hata mesajını oku
-                    const text = await response.text();
-                    throw new Error(`Server returned: ${text.substring(0, 100)}...`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
-                if (response.ok) {
-                    document.getElementById('totalEpisodes').textContent = data.total_episodes;
-                    document.getElementById('chosenEpisodes').textContent = data.chosen_episodes;
-                    document.getElementById('unplayedEpisodes').textContent = data.unplayed_episodes;
-                    
-                    const message = data.message || `✅ ${data.total_episodes} bölüm yüklendi! (${data.chosen_episodes} seçilen)`;
-                    showMessage(message, 'success');
-                } else {
-                    showMessage('❌ Hata: ' + (data.error || data.detail || 'Bilinmeyen hata'), 'error');
-                }
+                const data = await response.json();
+                
+                document.getElementById('totalEpisodes').textContent = data.total_episodes;
+                document.getElementById('chosenEpisodes').textContent = data.chosen_episodes;
+                document.getElementById('unplayedEpisodes').textContent = data.unplayed_episodes;
+                
+                const message = data.message || `✅ ${data.total_episodes} bölüm yüklendi! (${data.chosen_episodes} seçilen)`;
+                showMessage(message, 'success');
+                
             } catch (error) {
                 console.error('Load error:', error);
-                showMessage('❌ Network hatası: ' + error.message, 'error');
+                showMessage('❌ Hata: ' + error.message, 'error');
             } finally {
                 setLoading('loadBtn', false);
             }
@@ -194,18 +185,13 @@
             try {
                 const response = await fetch('/sync_playlists');
                 
-                // Response tipini kontrol et
-                const contentType = response.headers.get('content-type');
-                let data;
-                
-                if (contentType && contentType.includes('application/json')) {
-                    data = await response.json();
-                } else {
-                    const text = await response.text();
-                    throw new Error(`Server returned: ${text.substring(0, 100)}...`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
-                if (response.ok && data.success) {
+                const data = await response.json();
+                
+                if (data.success) {
                     showMessage(
                         `✅ ${data.message}<br>
                          <a href="${data.chosen_playlist}" target="_blank">🎧 Rabarba Choosen</a><br>
@@ -213,28 +199,26 @@
                         'success'
                     );
                 } else {
-                    showMessage('❌ Hata: ' + (data.error || data.detail || 'Senkronizasyon başarısız'), 'error');
+                    showMessage('❌ Hata: ' + (data.error || 'Senkronizasyon başarısız'), 'error');
                 }
             } catch (error) {
                 console.error('Sync error:', error);
-                showMessage('❌ Network hatası: ' + error.message, 'error');
+                showMessage('❌ Hata: ' + error.message, 'error');
             } finally {
                 setLoading('syncBtn', false);
             }
         }
 
-        // Sayfa yüklendiğinde istatistikleri getir
+        // Sayfa yüklendiğinde istatistikleri getir - BASİT VERSİYON
         document.addEventListener('DOMContentLoaded', function() {
-            fetch('/get_stats')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('totalEpisodes').textContent = data.total_episodes;
-                    document.getElementById('chosenEpisodes').textContent = data.chosen_episodes;
-                    document.getElementById('unplayedEpisodes').textContent = data.unplayed_episodes;
-                })
-                .catch(error => {
-                    console.log('Stats load error:', error);
-                });
+            // Session'da veri varsa göster, yoksa varsayılan değerler
+            const total = {{ session.get('all_episodes', []) | length }};
+            const chosen = {{ session.get('chosen_episodes', []) | length }};
+            const unplayed = {{ session.get('unplayed_episodes', []) | length }};
+            
+            document.getElementById('totalEpisodes').textContent = total;
+            document.getElementById('chosenEpisodes').textContent = chosen;
+            document.getElementById('unplayedEpisodes').textContent = unplayed;
         });
     </script>
 </body>
