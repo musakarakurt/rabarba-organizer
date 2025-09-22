@@ -20,7 +20,7 @@ print("=============================")
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'rabarba_backup_secret_2024')
 
-# Spotify API ayarları
+# Spotify API ayarları - DOĞRU İSİMLERLE
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIPY_CLIENT_SECRET')
 SPOTIFY_REDIRECT_URI = os.getenv('SPOTIPY_REDIRECT_URI')
@@ -28,7 +28,10 @@ SPOTIFY_REDIRECT_URI = os.getenv('SPOTIPY_REDIRECT_URI')
 # Eğer Render'da çalışıyorsak redirect URI'yı güncelle
 if os.getenv('RENDER'):
     hostname = os.getenv('RENDER_EXTERNAL_HOSTNAME', 'rabarba-organizer')
-    SPOTIFY_REDIRECT_URI = f"https://{hostname}.onrender.com/callback"
+    # .onrender.com zaten hostname'de var, tekrar ekleme
+    if not hostname.endswith('.onrender.com'):
+        hostname = f"{hostname}.onrender.com"
+    SPOTIFY_REDIRECT_URI = f"https://{hostname}/callback"
     print(f"Render mode detected. Redirect URI set to: {SPOTIFY_REDIRECT_URI}")
 
 # Spotipy için environment variables set et
