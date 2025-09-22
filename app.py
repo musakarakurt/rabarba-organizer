@@ -85,9 +85,12 @@ def get_spotify_client():
 
 def get_episode_details(episode):
     """Bölüm detaylarını çıkarır"""
-    name = episode['name']
-    release_date = episode['release_date']
-    uri = episode['uri']
+    if not episode:
+        return None
+        
+    name = episode.get('name', '')
+    release_date = episode.get('release_date', '')
+    uri = episode.get('uri', '')
     description = episode.get('description', '')
     
     return {
@@ -97,17 +100,21 @@ def get_episode_details(episode):
         'description': description,
         'episode_number': extract_episode_number(name),
         'part': extract_part(name),
-        'id': episode['id']
+        'id': episode.get('id', '')
     }
 
 def extract_episode_number(name):
     """Bölüm numarasını çıkarır"""
+    if not name:
+        return 0
     # 001, 0322, 1548 gibi formatları yakala
     match = re.search(r'(\d{3,4})', name)
     return int(match.group(1)) if match else 0
 
 def extract_part(name):
     """Bölüm parçasını (A/B) çıkarır"""
+    if not name:
+        return None
     match = re.search(r'\s([AB])(?:\s|$|\))', name)
     return match.group(1) if match else None
 
@@ -117,6 +124,9 @@ def contains_target_guest(description, episode_number):
     if episode_number < 322:
         return True
     
+    if not description:
+        return False
+        
     description_lower = description.lower()
     
     # Konuk isimlerini kontrol et
@@ -233,19 +243,39 @@ def load_episodes():
         
         print("Fetching episodes from Spotify...")
         
-        # Tüm bölümleri getir
+        # Tüm bölümleri getir - HATA KONTROLLÜ
         results = sp.show_episodes(show_id, limit=50, offset=0)
-        while results['items']:
-            for episode in results['items']:
-                episode_details = get_episode_details(episode)
-                all_episodes.append(episode_details)
+        
+        # results kontrolü ekle
+        if not results or 'items' not in results:
+            print("❌ No results from Spotify API")
+            return jsonify({'error': 'No episodes found from Spotify API'}), 500
+        
+        page_count = 0
+        while results and results.get('items'):
+            page_count += 1
+            print(f"Processing page {page_count} with {len(results['items'])} episodes")
             
-            if results['next']:
-                results = sp.next(results)
+            for episode in results['items']:
+                if episode:  # Episode boş değilse
+                    episode_details = get_episode_details(episode)
+                    if episode_details:
+                        all_episodes.append(episode_details)
+            
+            if results.get('next'):
+                try:
+                    results = sp.next(results)
+                except Exception as e:
+                    print(f"Error fetching next page: {e}")
+                    break
             else:
                 break
         
-        print(f"Fetched {len(all_episodes)} episodes")
+        if not all_episodes:
+            print("❌ No episodes loaded")
+            return jsonify({'error': 'No episodes could be loaded from the podcast'}), 500
+        
+        print(f"✅ Successfully fetched {len(all_episodes)} episodes from {page_count} pages")
         
         # Bölümleri sırala
         sorted_episodes = sort_episodes(all_episodes)
@@ -260,12 +290,14 @@ def load_episodes():
         session['chosen_episodes'] = chosen_episodes
         session['unplayed_episodes'] = chosen_episodes.copy()
         
-        print(f"✅ Episodes loaded: Total: {len(sorted_episodes)}, Chosen: {len(chosen_episodes)}")
+        print(f"✅ Episodes processed: Total: {len(sorted_episodes)}, Chosen: {len(chosen_episodes)}")
         
         return jsonify({
+            'success': True,
             'total_episodes': len(sorted_episodes),
             'chosen_episodes': len(chosen_episodes),
-            'unplayed_episodes': len(chosen_episodes)
+            'unplayed_episodes': len(chosen_episodes),
+            'message': f'✅ {len(sorted_episodes)} bölüm yüklendi! ({len(chosen_episodes)} seçilen bölüm)'
         })
     
     except Exception as e:
@@ -310,8 +342,8 @@ def sync_playlists():
         chosen_episodes = session.get('chosen_episodes', [])
         unplayed_episodes = session.get('unplayed_episodes', [])
         
-        chosen_uris = [ep['uri'] for ep in chosen_episodes]
-        unplayed_uris = [ep['uri'] for ep in unplayed_episodes]
+        chosen_uris = [ep['uri'] for ep in chosen_episodes if ep.get('uri')]
+        unplayed_uris = [ep['uri'] for ep in unplayed_episodes if ep.get('uri')]
         
         print(f"Syncing: Chosen: {len(chosen_uris)} episodes, Unplayed: {len(unplayed_uris)} episodes")
         
@@ -325,7 +357,7 @@ def sync_playlists():
             'success': True,
             'chosen_playlist': chosen_playlist['external_urls']['spotify'],
             'unplayed_playlist': unplayed_playlist['external_urls']['spotify'],
-            'message': f'Playlistler güncellendi! Seçilen: {len(chosen_episodes)} bölüm, Oynatılmayan: {len(unplayed_episodes)} bölüm'
+            'message': f'✅ Playlistler güncellendi! Seçilen: {len(chosen_episodes)} bölüm, Oynatılmayan: {len(unplayed_episodes)} bölüm'
         })
     
     except Exception as e:
@@ -355,19 +387,26 @@ def create_or_find_playlist(sp, user_id, playlist_name):
 
 def update_playlist(sp, playlist_id, episode_uris):
     """Playlist'i güncelle"""
-    # Önce mevcut bölümleri temizle
-    sp.playlist_replace_items(playlist_id, [])
-    
     if not episode_uris:
         print("No episodes to add to playlist")
         return
+        
+    # Önce mevcut bölümleri temizle
+    try:
+        sp.playlist_replace_items(playlist_id, [])
+    except Exception as e:
+        print(f"Error clearing playlist: {e}")
     
     # Yeni bölümleri ekle (Spotify API 100 item limiti var)
     for i in range(0, len(episode_uris), 100):
         batch = episode_uris[i:i + 100]
-        sp.playlist_add_items(playlist_id, batch)
+        try:
+            sp.playlist_add_items(playlist_id, batch)
+        except Exception as e:
+            print(f"Error adding episodes to playlist: {e}")
+            break
     
-    print(f"Added {len(episode_uris)} episodes to playlist")
+    print(f"✅ Added {len(episode_uris)} episodes to playlist")
 
 @app.route('/mark_played/<int:episode_number>')
 def mark_played(episode_number):
@@ -423,7 +462,8 @@ def health_check():
     return jsonify({
         'status': 'healthy', 
         'timestamp': datetime.now().isoformat(),
-        'spotify_configured': bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)
+        'spotify_configured': bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET),
+        'episodes_loaded': len(session.get('all_episodes', []))
     })
 
 @app.route('/debug')
@@ -444,7 +484,9 @@ def debug():
         },
         'session': {
             'has_token': 'token_info' in session,
-            'episodes_loaded': len(session.get('all_episodes', []))
+            'total_episodes': len(session.get('all_episodes', [])),
+            'chosen_episodes': len(session.get('chosen_episodes', [])),
+            'unplayed_episodes': len(session.get('unplayed_episodes', []))
         }
     }
     return jsonify(debug_info)
