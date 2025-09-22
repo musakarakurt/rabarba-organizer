@@ -15,10 +15,10 @@ if not os.getenv('RENDER'):
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'rabarba_secret_key_123456')
 
-# Spotify API ayarları
-SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
-SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
-SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI')
+# Spotify API ayarları - SPOTIPY_ prefix ile
+SPOTIFY_CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID')
+SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIPY_CLIENT_SECRET')
+SPOTIFY_REDIRECT_URI = os.getenv('SPOTIPY_REDIRECT_URI')
 
 # Eğer Render'da çalışıyorsak redirect URI'yı güncelle
 if os.getenv('RENDER'):
