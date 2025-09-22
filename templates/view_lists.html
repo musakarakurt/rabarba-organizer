@@ -114,6 +114,14 @@
             margin: 10px 0;
             border: 1px solid #ffeaa7;
         }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border: 1px solid #bee5eb;
+        }
     </style>
 </head>
 <body>
@@ -125,13 +133,19 @@
         
         <div class="stats">
             <strong>İstatistikler:</strong><br>
-            Toplam Bölüm: {{ all_episodes|length }}<br>
-            Seçilen Bölüm: {{ chosen_episodes|length }}<br>
-            Oynatılmayan: {{ unplayed_episodes|length }}
+            Toplam Bölüm: {{ total_count|default(0) }}<br>
+            Seçilen Bölüm: {{ chosen_count|default(0) }}<br>
+            Gösterilen: {{ all_episodes|length }}
         </div>
 
+        {% if message %}
+        <div class="info">
+            {{ message }}
+        </div>
+        {% endif %}
+
         <div class="warning">
-            <strong>Not:</strong> Performans için sadece ilk 100 bölüm gösteriliyor. Tüm bölümler session'da kayıtlı.
+            <strong>Not:</strong> Performans için sadece ilk 50 bölüm gösteriliyor. Tüm bölümler kayıtlı ve Spotify sync'te kullanılacak.
         </div>
         
         <div class="tabs">
@@ -155,7 +169,7 @@
                     <button class="mark-played" onclick="markPlayed({{ episode.episode_number }})">Oynatıldı</button>
                 </div>
                 {% else %}
-                <p>Henüz bölüm yüklenmedi. Kontrol panelinden "Bölümleri Yükle" butonuna tıklayın.</p>
+                <p>Henüz bölüm yüklenmedi veya filtreye uygun bölüm bulunamadı.</p>
                 {% endfor %}
             </div>
         </div>
@@ -224,7 +238,6 @@
             }
         }
 
-        // Sayfa yüklendiğinde scroll'u en üste al
         document.addEventListener('DOMContentLoaded', function() {
             window.scrollTo(0, 0);
         });
