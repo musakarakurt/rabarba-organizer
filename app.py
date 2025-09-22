@@ -98,8 +98,7 @@ def extract_part(name):
     return match.group(1) if match else None
 
 def contains_target_guest(description, episode_number):
-    """Açıklamada hedef konukların olup olmadığını kontrol eder - DÜZGÜN VERSİYON"""
-    # ✅ TÜM bölümlerde filtreleme yap (322'den önce ve sonra)
+    """Açıklamada hedef konukların olup olmadığını kontrol eder - TÜM BÖLÜMLERDE FİLTRELE"""
     if not description:
         return False
         
@@ -110,7 +109,7 @@ def contains_target_guest(description, episode_number):
         if guest.lower() in description_lower:
             return True
     
-    return False  # Hedef konuk yoksa FİLTRELE
+    return False
 
 def sort_episodes(episodes):
     """Bölümleri doğru sıraya göre sıralar"""
@@ -177,7 +176,6 @@ def dashboard():
         user = sp.current_user()
         user_id = user['id']
         
-        # Kullanıcı verilerini yükle
         episode_data = user_data.get(user_id, {})
         counts = episode_data.get('counts', {'total': 0, 'chosen': 0, 'unplayed': 0})
         
@@ -205,20 +203,21 @@ def load_episodes():
         
         print("TÜM bölümler yükleniyor...")
         
-        # ✅ TÜM bölümleri getir - OFFSET ile tüm sayfaları tara
+        # TÜM sayfaları dolaş - 2389 bölüm için
         offset = 0
         limit = 50
-        total_loaded = 0
         
         while True:
+            print(f"Offset {offset} yükleniyor...")
+            
             results = sp.show_episodes(show_id, limit=limit, offset=offset)
             
             if not results or 'items' not in results or not results['items']:
+                print("Sayfa boş, duruyorum...")
                 break
                 
             page_episodes = len(results['items'])
-            total_loaded += page_episodes
-            print(f"Offset {offset}: {page_episodes} bölüm yüklendi")
+            print(f"Offset {offset}: {page_episodes} bölüm bulundu")
             
             for episode in results['items']:
                 if episode:
@@ -226,14 +225,19 @@ def load_episodes():
                     if episode_details and episode_details['episode_number'] > 0:
                         all_episodes.append(episode_details)
             
-            # Tüm bölümler alındı mı?
+            # Eğer bu sayfa tam dolu değilse, daha fazla sayfa yok
             if page_episodes < limit:
+                print(f"Son sayfaya ulaşıldı. Toplam: {len(all_episodes)} bölüm")
                 break
-                
+            
             offset += limit
+            
+            # 1 saniye bekle (Spotify API rate limit)
+            time.sleep(1)
             
             # Safety break (max 3000 bölüm)
             if offset > 2500:
+                print("Safety break: 2500 offset'e ulaşıldı")
                 break
         
         print(f"✅ Toplam {len(all_episodes)} bölüm yüklendi")
@@ -241,26 +245,23 @@ def load_episodes():
         if not all_episodes:
             return jsonify({'error': 'No episodes loaded'}), 500
         
+        # Bölüm numaralarını kontrol et
+        episode_numbers = [ep['episode_number'] for ep in all_episodes]
+        if episode_numbers:
+            min_ep = min(episode_numbers)
+            max_ep = max(episode_numbers)
+            print(f"Bölüm aralığı: {min_ep} - {max_ep}")
+        
         # Bölümleri sırala
         sorted_episodes = sort_episodes(all_episodes)
         
-        # ✅ TÜM bölümlerde filtreleme yap
+        # Filtreleme yap
         chosen_episodes = []
         for ep in sorted_episodes:
             if contains_target_guest(ep['description'], ep['episode_number']):
                 chosen_episodes.append(ep)
         
         print(f"✅ Filtreleme sonucu: {len(chosen_episodes)} bölüm")
-        
-        # Eksik bölüm kontrolü
-        episode_numbers = [ep['episode_number'] for ep in sorted_episodes]
-        missing_episodes = []
-        for i in range(1, max(episode_numbers) + 1):
-            if i not in episode_numbers:
-                missing_episodes.append(i)
-        
-        if missing_episodes:
-            print(f"⚠️  Eksik bölümler: {missing_episodes[:10]}...")
         
         # Verileri kaydet
         user_data[user_id] = {
@@ -305,7 +306,7 @@ def view_lists():
                              unplayed_count=0,
                              message="Henüz bölüm yüklenmedi. 'Bölümleri Yükle' butonuna tıklayın.")
     
-    # ✅ TÜM bölümleri göster - SAYFALAMA YOK
+    # TÜM bölümleri göster - SAYFALAMA YOK
     all_episodes = episode_data.get('all_episodes', [])
     chosen_episodes = episode_data.get('chosen_episodes', [])
     unplayed_episodes = episode_data.get('unplayed_episodes', [])
@@ -338,7 +339,7 @@ def sync_playlists():
         chosen_playlist = create_or_find_playlist(sp, user_id, "Rabarba Choosen")
         unplayed_playlist = create_or_find_playlist(sp, user_id, "Rabarba Unplayed")
         
-        # Bölüm URI'larını hazırla - TÜM FİLTRELENMİŞ BÖLÜMLER
+        # Bölüm URI'larını hazırla
         chosen_episodes = episode_data.get('chosen_episodes', [])
         unplayed_episodes = episode_data.get('unplayed_episodes', [])
         
@@ -379,7 +380,6 @@ def update_playlist(sp, playlist_id, episode_uris):
         
     sp.playlist_replace_items(playlist_id, [])
     
-    # Spotify API limiti (100 episode)
     for i in range(0, len(episode_uris), 100):
         batch = episode_uris[i:i + 100]
         sp.playlist_add_items(playlist_id, batch)
@@ -399,7 +399,6 @@ def mark_played(episode_number):
         unplayed_episodes = episode_data.get('unplayed_episodes', [])
         new_unplayed = [ep for ep in unplayed_episodes if ep['episode_number'] != episode_number]
         
-        # Veriyi güncelle
         episode_data['unplayed_episodes'] = new_unplayed
         episode_data['counts']['unplayed'] = len(new_unplayed)
         user_data[user_id] = episode_data
