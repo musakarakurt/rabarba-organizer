@@ -63,6 +63,7 @@
             overflow-y: auto;
             border: 1px solid #eee;
             padding: 10px;
+            margin-bottom: 20px;
         }
         .episode-item {
             padding: 8px;
@@ -106,13 +107,26 @@
             border-radius: 5px;
             margin: 10px 0;
         }
-        .warning {
-            background: #fff3cd;
-            color: #856404;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
-            border: 1px solid #ffeaa7;
+        .pagination {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .pagination a, .pagination span {
+            padding: 8px 16px;
+            margin: 0 4px;
+            border: 1px solid #ddd;
+            text-decoration: none;
+            color: #1DB954;
+        }
+        .pagination a:hover {
+            background: #1DB954;
+            color: white;
+        }
+        .pagination .current {
+            background: #1DB954;
+            color: white;
+            border-color: #1DB954;
         }
         .info {
             background: #d1ecf1;
@@ -129,13 +143,13 @@
         <h1>📋 Rabarba Listeleri</h1>
         
         <a href="{{ url_for('dashboard') }}" class="btn">← Kontrol Paneli</a>
-        <a href="{{ url_for('sync_playlists') }}" class="btn">🔄 Spotify'a Senkronize Et</a>
+        <a href="{{ url_for('sync_playlists') }}" class="btn" onclick="return confirm('Spotify listeleri güncellenecek. Emin misiniz?')">🔄 Spotify'a Senkronize Et</a>
         
         <div class="stats">
             <strong>İstatistikler:</strong><br>
-            Toplam Bölüm: {{ total_count|default(0) }}<br>
-            Seçilen Bölüm: {{ chosen_count|default(0) }}<br>
-            Gösterilen: {{ all_episodes|length }}
+            Toplam Bölüm: {{ total_count }}<br>
+            Seçilen Bölüm: {{ chosen_count }}<br>
+            Oynatılmayan: {{ unplayed_count }}
         </div>
 
         {% if message %}
@@ -144,8 +158,8 @@
         </div>
         {% endif %}
 
-        <div class="warning">
-            <strong>Not:</strong> Performans için sadece ilk 50 bölüm gösteriliyor. Tüm bölümler kayıtlı ve Spotify sync'te kullanılacak.
+        <div class="info">
+            <strong>Sayfa {{ current_page }}/{{ total_pages }}</strong> - Toplam {{ chosen_count }} bölümün {{ (current_page - 1) * page_size + 1 }}-{{ [current_page * page_size, chosen_count]|min }} arası gösteriliyor
         </div>
         
         <div class="tabs">
@@ -155,7 +169,7 @@
         </div>
         
         <div id="chosen" class="tab-content active">
-            <h2>🎯 Seçilen Bölümler</h2>
+            <h2>🎯 Seçilen Bölümler (Rabarba Choosen)</h2>
             <div class="episode-list">
                 {% for episode in chosen_episodes %}
                 <div class="episode-item">
@@ -175,7 +189,7 @@
         </div>
         
         <div id="unplayed" class="tab-content">
-            <h2>⏳ Oynatılmayan Bölümler</h2>
+            <h2>⏳ Oynatılmayan Bölümler (Rabarba Unplayed)</h2>
             <div class="episode-list">
                 {% for episode in unplayed_episodes %}
                 <div class="episode-item">
@@ -208,10 +222,27 @@
                     </div>
                 </div>
                 {% else %}
-                <p>Henüz bölüm yüklenmedi. Kontrol panelinden "Bölümleri Yükle" butonuna tıklayın.</p>
+                <p>Henüz bölüm yüklenmedi.</p>
                 {% endfor %}
             </div>
         </div>
+
+        <!-- Sayfalama -->
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if current_page > 1 %}
+            <a href="{{ url_for('view_lists', page=1) }}">⏮️ İlk</a>
+            <a href="{{ url_for('view_lists', page=current_page-1) }}">◀️ Önceki</a>
+            {% endif %}
+            
+            <span class="current">Sayfa {{ current_page }}/{{ total_pages }}</span>
+            
+            {% if current_page < total_pages %}
+            <a href="{{ url_for('view_lists', page=current_page+1) }}">Sonraki ▶️</a>
+            <a href="{{ url_for('view_lists', page=total_pages) }}">Son ⏭️</a>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
 
     <script>
@@ -227,11 +258,18 @@
         }
 
         async function markPlayed(episodeNumber) {
+            if (!confirm('Bu bölümü oynatıldı olarak işaretlemek istediğinizden emin misiniz?')) {
+                return;
+            }
+            
             try {
                 const response = await fetch('/mark_played/' + episodeNumber);
                 if (response.ok) {
-                    alert('Bölüm oynatıldı olarak işaretlendi!');
+                    const result = await response.json();
+                    alert(`Bölüm oynatıldı olarak işaretlendi! Kalan: ${result.remaining} bölüm`);
                     location.reload();
+                } else {
+                    alert('Hata oluştu');
                 }
             } catch (error) {
                 alert('Hata: ' + error.message);

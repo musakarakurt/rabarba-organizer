@@ -26,7 +26,6 @@ if os.getenv('RENDER'):
         hostname = f"{hostname}.onrender.com"
     SPOTIFY_REDIRECT_URI = f"https://{hostname}/callback"
 
-# Spotipy için environment variables set et
 if SPOTIFY_CLIENT_ID:
     os.environ['SPOTIPY_CLIENT_ID'] = SPOTIFY_CLIENT_ID
 if SPOTIFY_CLIENT_SECRET:
@@ -41,7 +40,7 @@ TARGET_GUESTS = [
     "Anlatanadam", "Alper Çelik", "Ömür Okumuş", "Erman Arıcasoy"
 ]
 
-# Basit veritabanı (session yerine)
+# Kullanıcı verilerini sakla
 user_data = {}
 
 def get_spotify_client():
@@ -60,8 +59,7 @@ def get_spotify_client():
             )
             token_info = sp_oauth.refresh_access_token(token_info['refresh_token'])
             session['token_info'] = token_info
-        except Exception as e:
-            print(f"Token refresh error: {e}")
+        except:
             return None
     
     return spotipy.Spotify(auth=token_info['access_token'])
@@ -78,13 +76,15 @@ def get_user_id():
         return None
 
 def get_episode_details(episode):
-    """Bölüm detaylarını çıkarır - MINIMAL"""
+    """Bölüm detaylarını çıkarır - TAM BİLGİLER"""
     if not episode:
         return None
         
     return {
         'name': episode.get('name', ''),
+        'release_date': episode.get('release_date', ''),
         'uri': episode.get('uri', ''),
+        'description': episode.get('description', ''),  # ✅ DESCRIPTION EKLENDİ
         'episode_number': extract_episode_number(episode.get('name', '')),
         'part': extract_part(episode.get('name', ''))
     }
@@ -98,17 +98,25 @@ def extract_part(name):
     return match.group(1) if match else None
 
 def contains_target_guest(description, episode_number):
+    """Açıklamada hedef konukların olup olmadığını kontrol eder - DÜZGÜN VERSİYON"""
+    # 322 A'dan önceki bölümler için filtreleme yapma
     if episode_number < 322:
         return True
+    
     if not description:
         return False
+        
     description_lower = description.lower()
+    
+    # Konuk isimlerini kontrol et
     for guest in TARGET_GUESTS:
         if guest.lower() in description_lower:
             return True
+    
     return False
 
 def sort_episodes(episodes):
+    """Bölümleri doğru sıraya göre sıralar"""
     def episode_key(ep):
         num = ep['episode_number']
         part = ep['part']
@@ -151,7 +159,6 @@ def callback():
         )
         token_info = sp_oauth.get_access_token(request.args['code'])
         
-        # SADECE token_info'yu session'a kaydet
         session.clear()
         session['token_info'] = {
             'access_token': token_info['access_token'],
@@ -171,20 +178,22 @@ def dashboard():
     
     try:
         user = sp.current_user()
+        user_id = user['id']
         
         # Kullanıcı verilerini yükle
-        user_id = user['id']
-        user_episode_data = user_data.get(user_id, {})
+        episode_data = user_data.get(user_id, {})
+        counts = episode_data.get('counts', {'total': 0, 'chosen': 0, 'unplayed': 0})
         
         return render_template('dashboard.html', 
                              user=user,
-                             episode_counts=user_episode_data.get('counts', {}))
+                             counts=counts)
     except Exception as e:
         session.clear()
         return redirect(url_for('login'))
 
 @app.route('/load_episodes')
 def load_episodes():
+    """TÜM bölümleri yükle - 2389 BÖLÜM"""
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -197,22 +206,26 @@ def load_episodes():
         show_id = '40ORgVQqJWPQGRMUXmL67y'
         all_episodes = []
         
-        # Sadece 2 sayfa yükle (100 bölüm)
+        print("Tüm bölümler yükleniyor...")
+        
+        # TÜM bölümleri getir - LİMİT YOK
         results = sp.show_episodes(show_id, limit=50, offset=0)
         
         if not results or 'items' not in results:
             return jsonify({'error': 'No episodes found'}), 500
         
         page_count = 0
-        while results and results.get('items') and page_count < 2:
+        while results and results.get('items'):
             page_count += 1
+            print(f"Sayfa {page_count} işleniyor...")
+            
             for episode in results['items']:
                 if episode:
                     episode_details = get_episode_details(episode)
                     if episode_details:
                         all_episodes.append(episode_details)
             
-            if page_count >= 2 or not results.get('next'):
+            if not results.get('next'):
                 break
             try:
                 results = sp.next(results)
@@ -222,20 +235,24 @@ def load_episodes():
         if not all_episodes:
             return jsonify({'error': 'No episodes loaded'}), 500
         
+        print(f"Toplam {len(all_episodes)} bölüm yüklendi")
+        
         # Bölümleri sırala
         sorted_episodes = sort_episodes(all_episodes)
         
-        # Filtreleme yap
+        # Filtreleme yap - DOĞRU ŞEKİLDE
         chosen_episodes = []
         for ep in sorted_episodes:
-            if contains_target_guest('', ep['episode_number']):  # 322'den öncekileri al
+            if contains_target_guest(ep['description'], ep['episode_number']):  # ✅ DESCRIPTION KULLANILIYOR
                 chosen_episodes.append(ep)
         
-        # Verileri kaydet (session yerine memory'de)
+        print(f"Filtreleme sonucu: {len(chosen_episodes)} bölüm")
+        
+        # Verileri kaydet
         user_data[user_id] = {
             'all_episodes': sorted_episodes,
             'chosen_episodes': chosen_episodes,
-            'unplayed_episodes': chosen_episodes.copy(),
+            'unplayed_episodes': chosen_episodes.copy(),  # Başlangıçta tümü oynatılmamış
             'counts': {
                 'total': len(sorted_episodes),
                 'chosen': len(chosen_episodes),
@@ -249,7 +266,7 @@ def load_episodes():
             'total_episodes': len(sorted_episodes),
             'chosen_episodes': len(chosen_episodes),
             'unplayed_episodes': len(chosen_episodes),
-            'message': f'{len(sorted_episodes)} bölüm yüklendi'
+            'message': f'✅ {len(sorted_episodes)} bölüm yüklendi! {len(chosen_episodes)} bölüm filtrelendi.'
         })
     
     except Exception as e:
@@ -257,6 +274,7 @@ def load_episodes():
 
 @app.route('/view_lists')
 def view_lists():
+    """Listeleri görüntüle - SAYFALI"""
     user_id = get_user_id()
     if not user_id:
         return redirect(url_for('login'))
@@ -268,22 +286,47 @@ def view_lists():
                              all_episodes=[],
                              chosen_episodes=[],
                              unplayed_episodes=[],
-                             message="Henüz bölüm yüklenmedi")
+                             total_count=0,
+                             chosen_count=0,
+                             message="Henüz bölüm yüklenmedi. 'Bölümleri Yükle' butonuna tıklayın.")
     
-    # Sadece ilk 30 bölümü göster
-    all_episodes = episode_data.get('all_episodes', [])[:30]
-    chosen_episodes = episode_data.get('chosen_episodes', [])[:30]
-    unplayed_episodes = episode_data.get('unplayed_episodes', [])[:30]
+    # Sayfa başına bölüm sayısı
+    page_size = 50
+    page = int(request.args.get('page', 1))
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # Tüm bölümleri al
+    all_episodes = episode_data.get('all_episodes', [])
+    chosen_episodes = episode_data.get('chosen_episodes', [])
+    unplayed_episodes = episode_data.get('unplayed_episodes', [])
+    
+    # Sayfalı bölümler
+    paginated_chosen = chosen_episodes[start_idx:end_idx]
+    paginated_unplayed = unplayed_episodes[start_idx:end_idx]
+    paginated_all = all_episodes[start_idx:end_idx]
+    
+    total_pages = max(
+        (len(chosen_episodes) + page_size - 1) // page_size,
+        (len(unplayed_episodes) + page_size - 1) // page_size,
+        (len(all_episodes) + page_size - 1) // page_size,
+        1
+    )
     
     return render_template('view_lists.html',
-                         all_episodes=all_episodes,
-                         chosen_episodes=chosen_episodes,
-                         unplayed_episodes=unplayed_episodes,
-                         total_count=episode_data['counts']['total'],
-                         chosen_count=episode_data['counts']['chosen'])
+                         all_episodes=paginated_all,
+                         chosen_episodes=paginated_chosen,
+                         unplayed_episodes=paginated_unplayed,
+                         total_count=len(all_episodes),
+                         chosen_count=len(chosen_episodes),
+                         unplayed_count=len(unplayed_episodes),
+                         current_page=page,
+                         total_pages=total_pages,
+                         page_size=page_size)
 
 @app.route('/sync_playlists')
 def sync_playlists():
+    """Spotify listelerini senkronize et - ONAYLI"""
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -297,11 +340,11 @@ def sync_playlists():
         if not episode_data:
             return jsonify({'error': 'Önce bölümleri yükleyin'}), 400
         
-        # Playlist'leri oluştur
+        # Playlist'leri oluştur veya bul
         chosen_playlist = create_or_find_playlist(sp, user_id, "Rabarba Choosen")
         unplayed_playlist = create_or_find_playlist(sp, user_id, "Rabarba Unplayed")
         
-        # Bölüm URI'larını hazırla
+        # Bölüm URI'larını hazırla - TÜM FİLTRELENMİŞ BÖLÜMLER
         chosen_episodes = episode_data.get('chosen_episodes', [])
         unplayed_episodes = episode_data.get('unplayed_episodes', [])
         
@@ -316,11 +359,11 @@ def sync_playlists():
             'success': True,
             'chosen_playlist': chosen_playlist['external_urls']['spotify'],
             'unplayed_playlist': unplayed_playlist['external_urls']['spotify'],
-            'message': f'Playlistler oluşturuldu! {len(chosen_episodes)} bölüm'
+            'message': f'✅ Spotify listeleri güncellendi! Seçilen: {len(chosen_episodes)} bölüm, Oynatılmayan: {len(unplayed_episodes)} bölüm'
         })
     
     except Exception as e:
-        return jsonify({'error': f'Error: {str(e)}'}), 500
+        return jsonify({'error': f'Sync error: {str(e)}'}), 500
 
 def create_or_find_playlist(sp, user_id, playlist_name):
     playlists = sp.current_user_playlists(limit=50)
@@ -332,15 +375,44 @@ def create_or_find_playlist(sp, user_id, playlist_name):
         user_id, 
         playlist_name,
         public=False,
-        description=f"Rabarba podcast - {datetime.now().strftime('%Y-%m-%d')}"
+        description=f"Rabarba podcast bölümleri - {datetime.now().strftime('%Y-%m-%d')}"
     )
     return new_playlist
 
 def update_playlist(sp, playlist_id, episode_uris):
     if not episode_uris:
         return
+        
     sp.playlist_replace_items(playlist_id, [])
-    sp.playlist_add_items(playlist_id, episode_uris)
+    
+    # Spotify API limiti (100 episode)
+    for i in range(0, len(episode_uris), 100):
+        batch = episode_uris[i:i + 100]
+        sp.playlist_add_items(playlist_id, batch)
+
+@app.route('/mark_played/<int:episode_number>')
+def mark_played(episode_number):
+    """Bölümü oynatılmış olarak işaretle"""
+    try:
+        user_id = get_user_id()
+        if not user_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        episode_data = user_data.get(user_id, {})
+        if not episode_data:
+            return jsonify({'error': 'No episode data'}), 400
+        
+        unplayed_episodes = episode_data.get('unplayed_episodes', [])
+        new_unplayed = [ep for ep in unplayed_episodes if ep['episode_number'] != episode_number]
+        
+        # Veriyi güncelle
+        episode_data['unplayed_episodes'] = new_unplayed
+        episode_data['counts']['unplayed'] = len(new_unplayed)
+        user_data[user_id] = episode_data
+        
+        return jsonify({'success': True, 'remaining': len(new_unplayed)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/get_stats')
 def get_stats():
@@ -364,32 +436,6 @@ def logout():
         del user_data[user_id]
     session.clear()
     return redirect(url_for('index'))
-
-@app.route('/test_simple')
-def test_simple():
-    return jsonify({'status': 'ok', 'message': 'Server çalışıyor'})
-
-@app.route('/test_session')
-def test_session():
-    return jsonify({
-        'session_size': len(str(session)),
-        'user_data_size': len(user_data)
-    })
-
-@app.route('/test_spotify')
-def test_spotify():
-    sp = get_spotify_client()
-    if not sp:
-        return jsonify({'error': 'Spotify bağlı değil'})
-    
-    try:
-        results = sp.show_episodes('40ORgVQqJWPQGRMUXmL67y', limit=3, offset=0)
-        return jsonify({
-            'success': True,
-            'episodes': len(results['items'])
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
