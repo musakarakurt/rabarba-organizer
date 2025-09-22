@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kontrol Paneli - Rabarba</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1DB954;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            margin: 10px 5px;
+            background-color: #1DB954;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .btn:hover {
+            background-color: #1ed760;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        .btn-danger {
+            background-color: #ff4444;
+        }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            border-left: 4px solid;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            border-color: #0c5460;
+            color: #0c5460;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border-color: #155724;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border-color: #721c24;
+            color: #721c24;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #1DB954;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎧 Rabarba Kontrol Paneli</h1>
+        <p>Hoş geldiniz, {{ user.display_name }}!</p>
+        
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Ana Sayfa</a>
+        <a href="{{ url_for('logout') }}" class="btn btn-danger">Çıkış Yap</a>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="totalEpisodes">-</div>
+                <div>Toplam Bölüm</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="chosenEpisodes">-</div>
+                <div>Seçilen Bölüm</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="unplayedEpisodes">-</div>
+                <div>Oynatılmayan</div>
+            </div>
+        </div>
+        
+        <div id="statusMessage"></div>
+        
+        <div class="actions">
+            <button onclick="loadEpisodes()" class="btn">📥 Bölümleri Yükle</button>
+            <button onclick="viewLists()" class="btn">👁️ Listeleri Görüntüle</button>
+            <button onclick="syncPlaylists()" class="btn">🔄 Spotify'a Senkronize Et</button>
+        </div>
+        
+        <div class="status info">
+            <h3>Bilgilendirme:</h3>
+            <p>1. Önce "Bölümleri Yükle" butonuyla tüm bölümleri getirin</p>
+            <p>2. "Listeleri Görüntüle" ile kontrol edin</p>
+            <p>3. "Spotify'a Senkronize Et" ile playlist'lerinizi oluşturun</p>
+        </div>
+    </div>
+
+    <script>
+        function showMessage(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        async function loadEpisodes() {
+            try {
+                const response = await fetch('/load_episodes');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('totalEpisodes').textContent = data.total_episodes;
+                    document.getElementById('chosenEpisodes').textContent = data.chosen_episodes;
+                    document.getElementById('unplayedEpisodes').textContent = data.unplayed_episodes;
+                    
+                    showMessage(`✅ ${data.total_episodes} bölüm yüklendi! (${data.chosen_episodes} seçilen)`, 'success');
+                } else {
+                    showMessage('❌ Hata: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Network hatası: ' + error.message, 'error');
+            }
+        }
+
+        function viewLists() {
+            window.location.href = '/view_lists';
+        }
+
+        async function syncPlaylists() {
+            try {
+                const response = await fetch('/sync_playlists');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showMessage(
+                        `✅ Playlist'ler oluşturuldu!<br>
+                         <a href="${data.chosen_playlist}" target="_blank">Rabarba Choosen</a><br>
+                         <a href="${data.unplayed_playlist}" target="_blank">Rabarba Unplayed</a>`, 
+                        'success'
+                    );
+                } else {
+                    showMessage('❌ Hata: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Network hatası: ' + error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

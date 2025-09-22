@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: rabarba-organizer
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: SPOTIFY_CLIENT_ID
+        value: 7459129ae8984ccf9935570b53a2ca37
+      - key: SPOTIFY_CLIENT_SECRET
+        value: aa2d9b23cadf49b889bcb6a0aa5f5b35
+      - key: SPOTIFY_REDIRECT_URI
+        value: https://rabarba-organizer.onrender.com/callback
+      - key: FLASK_SECRET_KEY
+        generateValue: true

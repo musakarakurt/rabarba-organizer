@@ -1,0 +1,37 @@
+name: Daily Rabarba Update
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Her gün saat 06:00'da (UTC+3)
+  workflow_dispatch:  # Manuel çalıştırma için
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install requests
+        
+    - name: Run update script
+      env:
+        UPDATE_URL: ${{ secrets.RENDER_UPDATE_URL }}
+      run: |
+        python -c "
+        import requests
+        if '$UPDATE_URL':
+            try:
+                response = requests.get('$UPDATE_URL/load_episodes')
+                print('Update response:', response.status_code)
+            except Exception as e:
+                print('Error:', e)
+        "
