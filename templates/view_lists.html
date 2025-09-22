@@ -12,7 +12,7 @@
             background-color: #f5f5f5;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             background: white;
             padding: 20px;
@@ -59,7 +59,7 @@
             display: block;
         }
         .episode-list {
-            max-height: 60vh;
+            max-height: 70vh;
             overflow-y: auto;
             border: 1px solid #eee;
             padding: 10px;
@@ -81,7 +81,7 @@
         .episode-number {
             font-weight: bold;
             color: #1DB954;
-            min-width: 60px;
+            min-width: 80px;
             display: inline-block;
         }
         .episode-name {
@@ -107,27 +107,6 @@
             border-radius: 5px;
             margin: 10px 0;
         }
-        .pagination {
-            display: flex;
-            justify-content: center;
-            margin: 20px 0;
-        }
-        .pagination a, .pagination span {
-            padding: 8px 16px;
-            margin: 0 4px;
-            border: 1px solid #ddd;
-            text-decoration: none;
-            color: #1DB954;
-        }
-        .pagination a:hover {
-            background: #1DB954;
-            color: white;
-        }
-        .pagination .current {
-            background: #1DB954;
-            color: white;
-            border-color: #1DB954;
-        }
         .info {
             background: #d1ecf1;
             color: #0c5460;
@@ -135,6 +114,13 @@
             border-radius: 5px;
             margin: 10px 0;
             border: 1px solid #bee5eb;
+        }
+        .search-box {
+            margin: 10px 0;
+            padding: 8px;
+            width: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
     </style>
 </head>
@@ -159,20 +145,22 @@
         {% endif %}
 
         <div class="info">
-            <strong>Sayfa {{ current_page }}/{{ total_pages }}</strong> - Toplam {{ chosen_count }} bölümün {{ (current_page - 1) * page_size + 1 }}-{{ [current_page * page_size, chosen_count]|min }} arası gösteriliyor
+            <strong>Tüm liste gösteriliyor</strong> - Toplam {{ chosen_count }} bölüm
         </div>
+
+        <input type="text" id="searchInput" class="search-box" placeholder="Bölüm ara..." onkeyup="filterEpisodes()">
         
         <div class="tabs">
-            <div class="tab active" onclick="showTab('chosen')">Seçilen Bölümler ({{ chosen_episodes|length }})</div>
-            <div class="tab" onclick="showTab('unplayed')">Oynatılmayanlar ({{ unplayed_episodes|length }})</div>
-            <div class="tab" onclick="showTab('all')">Tüm Bölümler ({{ all_episodes|length }})</div>
+            <div class="tab active" onclick="showTab('chosen')">Seçilen Bölümler ({{ chosen_count }})</div>
+            <div class="tab" onclick="showTab('unplayed')">Oynatılmayanlar ({{ unplayed_count }})</div>
+            <div class="tab" onclick="showTab('all')">Tüm Bölümler ({{ total_count }})</div>
         </div>
         
         <div id="chosen" class="tab-content active">
             <h2>🎯 Seçilen Bölümler (Rabarba Choosen)</h2>
-            <div class="episode-list">
+            <div class="episode-list" id="chosenList">
                 {% for episode in chosen_episodes %}
-                <div class="episode-item">
+                <div class="episode-item" data-number="{{ episode.episode_number }}" data-name="{{ episode.name|lower }}">
                     <div class="episode-info">
                         <span class="episode-number">
                             {{ "%04d"|format(episode.episode_number) }}{% if episode.part %} {{ episode.part }}{% endif %}
@@ -190,9 +178,9 @@
         
         <div id="unplayed" class="tab-content">
             <h2>⏳ Oynatılmayan Bölümler (Rabarba Unplayed)</h2>
-            <div class="episode-list">
+            <div class="episode-list" id="unplayedList">
                 {% for episode in unplayed_episodes %}
-                <div class="episode-item">
+                <div class="episode-item" data-number="{{ episode.episode_number }}" data-name="{{ episode.name|lower }}">
                     <div class="episode-info">
                         <span class="episode-number">
                             {{ "%04d"|format(episode.episode_number) }}{% if episode.part %} {{ episode.part }}{% endif %}
@@ -210,9 +198,9 @@
         
         <div id="all" class="tab-content">
             <h2>📚 Tüm Bölümler</h2>
-            <div class="episode-list">
+            <div class="episode-list" id="allList">
                 {% for episode in all_episodes %}
-                <div class="episode-item">
+                <div class="episode-item" data-number="{{ episode.episode_number }}" data-name="{{ episode.name|lower }}">
                     <div class="episode-info">
                         <span class="episode-number">
                             {{ "%04d"|format(episode.episode_number) }}{% if episode.part %} {{ episode.part }}{% endif %}
@@ -226,23 +214,6 @@
                 {% endfor %}
             </div>
         </div>
-
-        <!-- Sayfalama -->
-        {% if total_pages > 1 %}
-        <div class="pagination">
-            {% if current_page > 1 %}
-            <a href="{{ url_for('view_lists', page=1) }}">⏮️ İlk</a>
-            <a href="{{ url_for('view_lists', page=current_page-1) }}">◀️ Önceki</a>
-            {% endif %}
-            
-            <span class="current">Sayfa {{ current_page }}/{{ total_pages }}</span>
-            
-            {% if current_page < total_pages %}
-            <a href="{{ url_for('view_lists', page=current_page+1) }}">Sonraki ▶️</a>
-            <a href="{{ url_for('view_lists', page=total_pages) }}">Son ⏭️</a>
-            {% endif %}
-        </div>
-        {% endif %}
     </div>
 
     <script>
@@ -255,6 +226,24 @@
             });
             document.getElementById(tabName).classList.add('active');
             event.currentTarget.classList.add('active');
+        }
+
+        function filterEpisodes() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const activeTab = document.querySelector('.tab-content.active').id;
+            const episodeList = document.getElementById(activeTab + 'List');
+            const episodes = episodeList.getElementsByClassName('episode-item');
+            
+            for (let episode of episodes) {
+                const episodeNumber = episode.getAttribute('data-number');
+                const episodeName = episode.getAttribute('data-name');
+                
+                if (episodeNumber.includes(searchTerm) || episodeName.includes(searchTerm)) {
+                    episode.style.display = 'flex';
+                } else {
+                    episode.style.display = 'none';
+                }
+            }
         }
 
         async function markPlayed(episodeNumber) {

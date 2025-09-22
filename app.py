@@ -84,7 +84,7 @@ def get_episode_details(episode):
         'name': episode.get('name', ''),
         'release_date': episode.get('release_date', ''),
         'uri': episode.get('uri', ''),
-        'description': episode.get('description', ''),  # ✅ DESCRIPTION EKLENDİ
+        'description': episode.get('description', ''),
         'episode_number': extract_episode_number(episode.get('name', '')),
         'part': extract_part(episode.get('name', ''))
     }
@@ -99,10 +99,7 @@ def extract_part(name):
 
 def contains_target_guest(description, episode_number):
     """Açıklamada hedef konukların olup olmadığını kontrol eder - DÜZGÜN VERSİYON"""
-    # 322 A'dan önceki bölümler için filtreleme yapma
-    if episode_number < 322:
-        return True
-    
+    # ✅ TÜM bölümlerde filtreleme yap (322'den önce ve sonra)
     if not description:
         return False
         
@@ -113,7 +110,7 @@ def contains_target_guest(description, episode_number):
         if guest.lower() in description_lower:
             return True
     
-    return False
+    return False  # Hedef konuk yoksa FİLTRELE
 
 def sort_episodes(episodes):
     """Bölümleri doğru sıraya göre sıralar"""
@@ -193,7 +190,7 @@ def dashboard():
 
 @app.route('/load_episodes')
 def load_episodes():
-    """TÜM bölümleri yükle - 2389 BÖLÜM"""
+    """TÜM bölümleri yükle - 2389 BÖLÜM TAMAMEN"""
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -206,53 +203,70 @@ def load_episodes():
         show_id = '40ORgVQqJWPQGRMUXmL67y'
         all_episodes = []
         
-        print("Tüm bölümler yükleniyor...")
+        print("TÜM bölümler yükleniyor...")
         
-        # TÜM bölümleri getir - LİMİT YOK
-        results = sp.show_episodes(show_id, limit=50, offset=0)
+        # ✅ TÜM bölümleri getir - OFFSET ile tüm sayfaları tara
+        offset = 0
+        limit = 50
+        total_loaded = 0
         
-        if not results or 'items' not in results:
-            return jsonify({'error': 'No episodes found'}), 500
-        
-        page_count = 0
-        while results and results.get('items'):
-            page_count += 1
-            print(f"Sayfa {page_count} işleniyor...")
+        while True:
+            results = sp.show_episodes(show_id, limit=limit, offset=offset)
+            
+            if not results or 'items' not in results or not results['items']:
+                break
+                
+            page_episodes = len(results['items'])
+            total_loaded += page_episodes
+            print(f"Offset {offset}: {page_episodes} bölüm yüklendi")
             
             for episode in results['items']:
                 if episode:
                     episode_details = get_episode_details(episode)
-                    if episode_details:
+                    if episode_details and episode_details['episode_number'] > 0:
                         all_episodes.append(episode_details)
             
-            if not results.get('next'):
+            # Tüm bölümler alındı mı?
+            if page_episodes < limit:
                 break
-            try:
-                results = sp.next(results)
-            except:
+                
+            offset += limit
+            
+            # Safety break (max 3000 bölüm)
+            if offset > 2500:
                 break
+        
+        print(f"✅ Toplam {len(all_episodes)} bölüm yüklendi")
         
         if not all_episodes:
             return jsonify({'error': 'No episodes loaded'}), 500
         
-        print(f"Toplam {len(all_episodes)} bölüm yüklendi")
-        
         # Bölümleri sırala
         sorted_episodes = sort_episodes(all_episodes)
         
-        # Filtreleme yap - DOĞRU ŞEKİLDE
+        # ✅ TÜM bölümlerde filtreleme yap
         chosen_episodes = []
         for ep in sorted_episodes:
-            if contains_target_guest(ep['description'], ep['episode_number']):  # ✅ DESCRIPTION KULLANILIYOR
+            if contains_target_guest(ep['description'], ep['episode_number']):
                 chosen_episodes.append(ep)
         
-        print(f"Filtreleme sonucu: {len(chosen_episodes)} bölüm")
+        print(f"✅ Filtreleme sonucu: {len(chosen_episodes)} bölüm")
+        
+        # Eksik bölüm kontrolü
+        episode_numbers = [ep['episode_number'] for ep in sorted_episodes]
+        missing_episodes = []
+        for i in range(1, max(episode_numbers) + 1):
+            if i not in episode_numbers:
+                missing_episodes.append(i)
+        
+        if missing_episodes:
+            print(f"⚠️  Eksik bölümler: {missing_episodes[:10]}...")
         
         # Verileri kaydet
         user_data[user_id] = {
             'all_episodes': sorted_episodes,
             'chosen_episodes': chosen_episodes,
-            'unplayed_episodes': chosen_episodes.copy(),  # Başlangıçta tümü oynatılmamış
+            'unplayed_episodes': chosen_episodes.copy(),
             'counts': {
                 'total': len(sorted_episodes),
                 'chosen': len(chosen_episodes),
@@ -274,7 +288,7 @@ def load_episodes():
 
 @app.route('/view_lists')
 def view_lists():
-    """Listeleri görüntüle - SAYFALI"""
+    """Listeleri görüntüle - TÜM LİSTE TEK SAYFADA"""
     user_id = get_user_id()
     if not user_id:
         return redirect(url_for('login'))
@@ -288,41 +302,21 @@ def view_lists():
                              unplayed_episodes=[],
                              total_count=0,
                              chosen_count=0,
+                             unplayed_count=0,
                              message="Henüz bölüm yüklenmedi. 'Bölümleri Yükle' butonuna tıklayın.")
     
-    # Sayfa başına bölüm sayısı
-    page_size = 50
-    page = int(request.args.get('page', 1))
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
-    
-    # Tüm bölümleri al
+    # ✅ TÜM bölümleri göster - SAYFALAMA YOK
     all_episodes = episode_data.get('all_episodes', [])
     chosen_episodes = episode_data.get('chosen_episodes', [])
     unplayed_episodes = episode_data.get('unplayed_episodes', [])
     
-    # Sayfalı bölümler
-    paginated_chosen = chosen_episodes[start_idx:end_idx]
-    paginated_unplayed = unplayed_episodes[start_idx:end_idx]
-    paginated_all = all_episodes[start_idx:end_idx]
-    
-    total_pages = max(
-        (len(chosen_episodes) + page_size - 1) // page_size,
-        (len(unplayed_episodes) + page_size - 1) // page_size,
-        (len(all_episodes) + page_size - 1) // page_size,
-        1
-    )
-    
     return render_template('view_lists.html',
-                         all_episodes=paginated_all,
-                         chosen_episodes=paginated_chosen,
-                         unplayed_episodes=paginated_unplayed,
+                         all_episodes=all_episodes,
+                         chosen_episodes=chosen_episodes,
+                         unplayed_episodes=unplayed_episodes,
                          total_count=len(all_episodes),
                          chosen_count=len(chosen_episodes),
-                         unplayed_count=len(unplayed_episodes),
-                         current_page=page,
-                         total_pages=total_pages,
-                         page_size=page_size)
+                         unplayed_count=len(unplayed_episodes))
 
 @app.route('/sync_playlists')
 def sync_playlists():
