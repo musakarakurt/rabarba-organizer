@@ -14,6 +14,10 @@
         .container {
             max-width: 1200px;
             margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         h1 {
             color: #1DB954;
@@ -32,12 +36,14 @@
         .tabs {
             display: flex;
             margin: 20px 0;
+            flex-wrap: wrap;
         }
         .tab {
             padding: 10px 20px;
             background: #ddd;
             cursor: pointer;
             margin-right: 5px;
+            margin-bottom: 5px;
         }
         .tab.active {
             background: #1DB954;
@@ -45,22 +51,24 @@
         }
         .tab-content {
             display: none;
-            background: white;
             padding: 20px;
+            border: 1px solid #ddd;
             border-radius: 0 0 5px 5px;
         }
         .tab-content.active {
             display: block;
         }
         .episode-list {
-            max-height: 600px;
+            max-height: 60vh;
             overflow-y: auto;
+            border: 1px solid #eee;
+            padding: 10px;
         }
         .episode-item {
-            padding: 10px;
+            padding: 8px;
             border-bottom: 1px solid #eee;
             display: flex;
-            justify-content: between;
+            justify-content: space-between;
             align-items: center;
         }
         .episode-item:hover {
@@ -72,6 +80,8 @@
         .episode-number {
             font-weight: bold;
             color: #1DB954;
+            min-width: 60px;
+            display: inline-block;
         }
         .episode-name {
             margin-left: 10px;
@@ -79,6 +89,7 @@
         .episode-date {
             color: #666;
             font-size: 0.9em;
+            margin-left: 10px;
         }
         .mark-played {
             background: #ff4444;
@@ -87,6 +98,21 @@
             padding: 5px 10px;
             border-radius: 3px;
             cursor: pointer;
+            font-size: 0.8em;
+        }
+        .stats {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border: 1px solid #ffeaa7;
         }
     </style>
 </head>
@@ -96,6 +122,17 @@
         
         <a href="{{ url_for('dashboard') }}" class="btn">← Kontrol Paneli</a>
         <a href="{{ url_for('sync_playlists') }}" class="btn">🔄 Spotify'a Senkronize Et</a>
+        
+        <div class="stats">
+            <strong>İstatistikler:</strong><br>
+            Toplam Bölüm: {{ all_episodes|length }}<br>
+            Seçilen Bölüm: {{ chosen_episodes|length }}<br>
+            Oynatılmayan: {{ unplayed_episodes|length }}
+        </div>
+
+        <div class="warning">
+            <strong>Not:</strong> Performans için sadece ilk 100 bölüm gösteriliyor. Tüm bölümler session'da kayıtlı.
+        </div>
         
         <div class="tabs">
             <div class="tab active" onclick="showTab('chosen')">Seçilen Bölümler ({{ chosen_episodes|length }})</div>
@@ -117,6 +154,8 @@
                     </div>
                     <button class="mark-played" onclick="markPlayed({{ episode.episode_number }})">Oynatıldı</button>
                 </div>
+                {% else %}
+                <p>Henüz bölüm yüklenmedi. Kontrol panelinden "Bölümleri Yükle" butonuna tıklayın.</p>
                 {% endfor %}
             </div>
         </div>
@@ -135,6 +174,8 @@
                     </div>
                     <button class="mark-played" onclick="markPlayed({{ episode.episode_number }})">Oynatıldı</button>
                 </div>
+                {% else %}
+                <p>Tüm bölümler oynatıldı veya henüz bölüm yüklenmedi.</p>
                 {% endfor %}
             </div>
         </div>
@@ -152,6 +193,8 @@
                         <span class="episode-date">({{ episode.release_date }})</span>
                     </div>
                 </div>
+                {% else %}
+                <p>Henüz bölüm yüklenmedi. Kontrol panelinden "Bölümleri Yükle" butonuna tıklayın.</p>
                 {% endfor %}
             </div>
         </div>
@@ -159,17 +202,12 @@
 
     <script>
         function showTab(tabName) {
-            // Tüm tab içeriklerini gizle
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
             });
-            
-            // Tüm tab başlıklarını pasif yap
             document.querySelectorAll('.tab').forEach(tab => {
                 tab.classList.remove('active');
             });
-            
-            // Seçilen tab'ı aktif yap
             document.getElementById(tabName).classList.add('active');
             event.currentTarget.classList.add('active');
         }
@@ -185,6 +223,11 @@
                 alert('Hata: ' + error.message);
             }
         }
+
+        // Sayfa yüklendiğinde scroll'u en üste al
+        document.addEventListener('DOMContentLoaded', function() {
+            window.scrollTo(0, 0);
+        });
     </script>
 </body>
 </html>

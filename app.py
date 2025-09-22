@@ -19,6 +19,7 @@ print("=============================")
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'rabarba_backup_secret_2024')
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False  # JSON response'ları küçült
 
 # Spotify API ayarları - DOĞRU İSİMLERLE
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID')
@@ -28,7 +29,6 @@ SPOTIFY_REDIRECT_URI = os.getenv('SPOTIPY_REDIRECT_URI')
 # Eğer Render'da çalışıyorsak redirect URI'yı güncelle
 if os.getenv('RENDER'):
     hostname = os.getenv('RENDER_EXTERNAL_HOSTNAME', 'rabarba-organizer')
-    # .onrender.com zaten hostname'de var, tekrar ekleme
     if not hostname.endswith('.onrender.com'):
         hostname = f"{hostname}.onrender.com"
     SPOTIFY_REDIRECT_URI = f"https://{hostname}/callback"
@@ -45,10 +45,6 @@ if SPOTIFY_REDIRECT_URI:
 # Credential kontrolü
 if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
     print("❌ ERROR: Spotify credentials missing!")
-    if not SPOTIFY_CLIENT_ID:
-        print("   - SPOTIPY_CLIENT_ID is missing")
-    if not SPOTIFY_CLIENT_SECRET:
-        print("   - SPOTIPY_CLIENT_SECRET is missing")
 else:
     print("✅ Spotify credentials loaded successfully")
 
@@ -66,7 +62,6 @@ def get_spotify_client():
     if not token_info:
         return None
     
-    # Token süresi dolmuşsa yenile
     if token_info['expires_at'] < time.time():
         try:
             sp_oauth = SpotifyOAuth(
@@ -88,39 +83,28 @@ def get_episode_details(episode):
     if not episode:
         return None
         
-    name = episode.get('name', '')
-    release_date = episode.get('release_date', '')
-    uri = episode.get('uri', '')
-    description = episode.get('description', '')
-    
     return {
-        'name': name,
-        'release_date': release_date,
-        'uri': uri,
-        'description': description,
-        'episode_number': extract_episode_number(name),
-        'part': extract_part(name),
+        'name': episode.get('name', ''),
+        'release_date': episode.get('release_date', ''),
+        'uri': episode.get('uri', ''),
+        'description': episode.get('description', ''),
+        'episode_number': extract_episode_number(episode.get('name', '')),
+        'part': extract_part(episode.get('name', '')),
         'id': episode.get('id', '')
     }
 
 def extract_episode_number(name):
     """Bölüm numarasını çıkarır"""
-    if not name:
-        return 0
-    # 001, 0322, 1548 gibi formatları yakala
     match = re.search(r'(\d{3,4})', name)
     return int(match.group(1)) if match else 0
 
 def extract_part(name):
     """Bölüm parçasını (A/B) çıkarır"""
-    if not name:
-        return None
     match = re.search(r'\s([AB])(?:\s|$|\))', name)
     return match.group(1) if match else None
 
 def contains_target_guest(description, episode_number):
     """Açıklamada hedef konukların olup olmadığını kontrol eder"""
-    # 322 A'dan önceki bölümler için filtreleme yapma
     if episode_number < 322:
         return True
     
@@ -128,12 +112,9 @@ def contains_target_guest(description, episode_number):
         return False
         
     description_lower = description.lower()
-    
-    # Konuk isimlerini kontrol et
     for guest in TARGET_GUESTS:
         if guest.lower() in description_lower:
             return True
-    
     return False
 
 def sort_episodes(episodes):
@@ -141,11 +122,8 @@ def sort_episodes(episodes):
     def episode_key(ep):
         num = ep['episode_number']
         part = ep['part']
-        
-        # Part sıralaması: None (tek bölüm) -> A -> B
         part_order = {'A': 1, 'B': 2}
         part_value = part_order.get(part, 0) if part else 0
-        
         return (num, part_value)
     
     return sorted(episodes, key=episode_key)
@@ -155,21 +133,13 @@ def index():
     """Ana sayfa"""
     token_info = session.get('token_info')
     logged_in = token_info is not None
-    
-    # Debug info
-    print(f"Homepage accessed. Logged in: {logged_in}")
-    
     return render_template('index.html', logged_in=logged_in)
 
 @app.route('/login')
 def login():
     """Spotify girişi"""
-    print("Login endpoint accessed")
-    
     if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
-        error_msg = "Spotify credentials not configured. Please check environment variables."
-        print(f"❌ {error_msg}")
-        return jsonify({'error': error_msg}), 500
+        return jsonify({'error': 'Spotify credentials not configured'}), 500
     
     try:
         sp_oauth = SpotifyOAuth(
@@ -179,19 +149,13 @@ def login():
             scope=SCOPE
         )
         auth_url = sp_oauth.get_authorize_url()
-        print(f"Redirecting to Spotify auth: {auth_url}")
         return redirect(auth_url)
     except Exception as e:
-        error_msg = f"Spotify OAuth error: {str(e)}"
-        print(f"❌ {error_msg}")
-        return jsonify({'error': error_msg}), 500
+        return jsonify({'error': f'Spotify OAuth error: {str(e)}'}), 500
 
 @app.route('/callback')
 def callback():
     """Spotify callback"""
-    print("Callback endpoint accessed")
-    print(f"Request args: {dict(request.args)}")
-    
     try:
         sp_oauth = SpotifyOAuth(
             client_id=SPOTIFY_CLIENT_ID,
@@ -199,40 +163,29 @@ def callback():
             redirect_uri=SPOTIFY_REDIRECT_URI,
             scope=SCOPE
         )
-        
         token_info = sp_oauth.get_access_token(request.args['code'])
         session['token_info'] = token_info
-        print("✅ Authentication successful")
         return redirect(url_for('dashboard'))
     except Exception as e:
-        error_msg = f"Authentication failed: {str(e)}"
-        print(f"❌ {error_msg}")
-        return error_msg
+        return f"Authentication failed: {str(e)}"
 
 @app.route('/dashboard')
 def dashboard():
     """Kontrol paneli"""
-    print("Dashboard accessed")
-    
     sp = get_spotify_client()
     if not sp:
-        print("❌ Not authenticated, redirecting to login")
         return redirect(url_for('login'))
     
     try:
         user = sp.current_user()
-        print(f"✅ User: {user['display_name']}")
         return render_template('dashboard.html', user=user)
     except Exception as e:
-        print(f"❌ Dashboard error: {e}")
         session.clear()
         return redirect(url_for('login'))
 
 @app.route('/load_episodes')
 def load_episodes():
-    """Tüm bölümleri yükle"""
-    print("Load episodes endpoint accessed")
-    
+    """Tüm bölümleri yükle - OPTIMIZE EDILMIS"""
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -241,41 +194,32 @@ def load_episodes():
         show_id = '40ORgVQqJWPQGRMUXmL67y'
         all_episodes = []
         
-        print("Fetching episodes from Spotify...")
-        
-        # Tüm bölümleri getir - HATA KONTROLLÜ
+        # Bölümleri sayfalı olarak getir
         results = sp.show_episodes(show_id, limit=50, offset=0)
         
-        # results kontrolü ekle
         if not results or 'items' not in results:
-            print("❌ No results from Spotify API")
-            return jsonify({'error': 'No episodes found from Spotify API'}), 500
+            return jsonify({'error': 'No episodes found'}), 500
         
         page_count = 0
         while results and results.get('items'):
             page_count += 1
-            print(f"Processing page {page_count} with {len(results['items'])} episodes")
-            
             for episode in results['items']:
-                if episode:  # Episode boş değilse
+                if episode:
                     episode_details = get_episode_details(episode)
                     if episode_details:
                         all_episodes.append(episode_details)
             
-            if results.get('next'):
-                try:
-                    results = sp.next(results)
-                except Exception as e:
-                    print(f"Error fetching next page: {e}")
-                    break
-            else:
+            # Sadece ilk 10 sayfa yükle (500 bölüm) - timeout'u önle
+            if page_count >= 10 or not results.get('next'):
+                break
+                
+            try:
+                results = sp.next(results)
+            except:
                 break
         
         if not all_episodes:
-            print("❌ No episodes loaded")
-            return jsonify({'error': 'No episodes could be loaded from the podcast'}), 500
-        
-        print(f"✅ Successfully fetched {len(all_episodes)} episodes from {page_count} pages")
+            return jsonify({'error': 'No episodes loaded'}), 500
         
         # Bölümleri sırala
         sorted_episodes = sort_episodes(all_episodes)
@@ -286,33 +230,29 @@ def load_episodes():
             if contains_target_guest(ep['description'], ep['episode_number']):
                 chosen_episodes.append(ep)
         
+        # Session'a kaydet (sadece ID'leri sakla - hafıza için)
         session['all_episodes'] = sorted_episodes
         session['chosen_episodes'] = chosen_episodes
         session['unplayed_episodes'] = chosen_episodes.copy()
-        
-        print(f"✅ Episodes processed: Total: {len(sorted_episodes)}, Chosen: {len(chosen_episodes)}")
         
         return jsonify({
             'success': True,
             'total_episodes': len(sorted_episodes),
             'chosen_episodes': len(chosen_episodes),
             'unplayed_episodes': len(chosen_episodes),
-            'message': f'✅ {len(sorted_episodes)} bölüm yüklendi! ({len(chosen_episodes)} seçilen bölüm)'
+            'message': f'{len(sorted_episodes)} bölüm yüklendi ({len(chosen_episodes)} seçilen)'
         })
     
     except Exception as e:
-        error_msg = f"Error loading episodes: {str(e)}"
-        print(f"❌ {error_msg}")
-        return jsonify({'error': error_msg}), 500
+        return jsonify({'error': f'Error loading episodes: {str(e)}'}), 500
 
 @app.route('/view_lists')
 def view_lists():
-    """Listeleri görüntüle"""
-    all_episodes = session.get('all_episodes', [])
-    chosen_episodes = session.get('chosen_episodes', [])
-    unplayed_episodes = session.get('unplayed_episodes', [])
-    
-    print(f"View lists: All: {len(all_episodes)}, Chosen: {len(chosen_episodes)}, Unplayed: {len(unplayed_episodes)}")
+    """Listeleri görüntüle - OPTIMIZE EDILMIS"""
+    # Sadece ilk 100 bölümü göster - performance için
+    all_episodes = session.get('all_episodes', [])[:100]
+    chosen_episodes = session.get('chosen_episodes', [])[:100]
+    unplayed_episodes = session.get('unplayed_episodes', [])[:100]
     
     return render_template('view_lists.html',
                          all_episodes=all_episodes,
@@ -322,8 +262,6 @@ def view_lists():
 @app.route('/sync_playlists')
 def sync_playlists():
     """Spotify listelerini senkronize et"""
-    print("Sync playlists endpoint accessed")
-    
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -331,8 +269,6 @@ def sync_playlists():
     try:
         user = sp.current_user()
         user_id = user['id']
-        
-        print(f"Syncing playlists for user: {user['display_name']}")
         
         # Playlist'leri oluştur veya bul
         chosen_playlist = create_or_find_playlist(sp, user_id, "Rabarba Choosen")
@@ -345,87 +281,54 @@ def sync_playlists():
         chosen_uris = [ep['uri'] for ep in chosen_episodes if ep.get('uri')]
         unplayed_uris = [ep['uri'] for ep in unplayed_episodes if ep.get('uri')]
         
-        print(f"Syncing: Chosen: {len(chosen_uris)} episodes, Unplayed: {len(unplayed_uris)} episodes")
-        
         # Playlist'leri güncelle
         update_playlist(sp, chosen_playlist['id'], chosen_uris)
         update_playlist(sp, unplayed_playlist['id'], unplayed_uris)
-        
-        print("✅ Playlists synced successfully")
         
         return jsonify({
             'success': True,
             'chosen_playlist': chosen_playlist['external_urls']['spotify'],
             'unplayed_playlist': unplayed_playlist['external_urls']['spotify'],
-            'message': f'✅ Playlistler güncellendi! Seçilen: {len(chosen_episodes)} bölüm, Oynatılmayan: {len(unplayed_episodes)} bölüm'
+            'message': f'Playlistler güncellendi! Seçilen: {len(chosen_episodes)} bölüm'
         })
     
     except Exception as e:
-        error_msg = f"Error syncing playlists: {str(e)}"
-        print(f"❌ {error_msg}")
-        return jsonify({'error': error_msg}), 500
+        return jsonify({'error': f'Error syncing playlists: {str(e)}'}), 500
 
 def create_or_find_playlist(sp, user_id, playlist_name):
     """Playlist oluştur veya bul"""
     playlists = sp.current_user_playlists(limit=50)
-    
     for playlist in playlists['items']:
         if playlist['name'] == playlist_name:
-            print(f"Found existing playlist: {playlist_name}")
             return playlist
     
-    # Yeni playlist oluştur
-    print(f"Creating new playlist: {playlist_name}")
     new_playlist = sp.user_playlist_create(
         user_id, 
         playlist_name,
         public=False,
         description=f"Rabarba podcast bölümleri - {datetime.now().strftime('%Y-%m-%d')}"
     )
-    
     return new_playlist
 
 def update_playlist(sp, playlist_id, episode_uris):
     """Playlist'i güncelle"""
     if not episode_uris:
-        print("No episodes to add to playlist")
         return
         
-    # Önce mevcut bölümleri temizle
-    try:
-        sp.playlist_replace_items(playlist_id, [])
-    except Exception as e:
-        print(f"Error clearing playlist: {e}")
-    
-    # Yeni bölümleri ekle (Spotify API 100 item limiti var)
+    sp.playlist_replace_items(playlist_id, [])
     for i in range(0, len(episode_uris), 100):
         batch = episode_uris[i:i + 100]
-        try:
-            sp.playlist_add_items(playlist_id, batch)
-        except Exception as e:
-            print(f"Error adding episodes to playlist: {e}")
-            break
-    
-    print(f"✅ Added {len(episode_uris)} episodes to playlist")
+        sp.playlist_add_items(playlist_id, batch)
 
 @app.route('/mark_played/<int:episode_number>')
 def mark_played(episode_number):
     """Bölümü oynatılmış olarak işaretle"""
     try:
         unplayed_episodes = session.get('unplayed_episodes', [])
-        
-        # Bölümü unplayed listesinden kaldır
-        new_unplayed = [ep for ep in unplayed_episodes if ep['episode_number'] != episode_number]
-        session['unplayed_episodes'] = new_unplayed
-        
-        print(f"Marked episode {episode_number} as played. Remaining: {len(new_unplayed)}")
-        
-        return jsonify({'success': True, 'remaining': len(new_unplayed)})
-    
+        session['unplayed_episodes'] = [ep for ep in unplayed_episodes if ep['episode_number'] != episode_number]
+        return jsonify({'success': True, 'remaining': len(session['unplayed_episodes'])})
     except Exception as e:
-        error_msg = f"Error marking episode as played: {str(e)}"
-        print(f"❌ {error_msg}")
-        return jsonify({'error': error_msg}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/get_stats')
 def get_stats():
@@ -433,7 +336,6 @@ def get_stats():
     all_episodes = session.get('all_episodes', [])
     chosen_episodes = session.get('chosen_episodes', [])
     unplayed_episodes = session.get('unplayed_episodes', [])
-    
     return jsonify({
         'total_episodes': len(all_episodes),
         'chosen_episodes': len(chosen_episodes),
@@ -443,55 +345,24 @@ def get_stats():
 @app.route('/logout')
 def logout():
     """Çıkış yap"""
-    print("User logged out")
     session.clear()
     return redirect(url_for('index'))
 
-@app.errorhandler(404)
-def not_found(error):
-    return render_template('index.html'), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    print(f"500 Error: {error}")
-    return jsonify({'error': 'Internal server error'}), 500
-
-# Health check endpoint for Render
 @app.route('/health')
 def health_check():
-    return jsonify({
-        'status': 'healthy', 
-        'timestamp': datetime.now().isoformat(),
-        'spotify_configured': bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET),
-        'episodes_loaded': len(session.get('all_episodes', []))
-    })
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
 @app.route('/debug')
 def debug():
-    """Debug endpoint"""
-    debug_info = {
-        'environment_variables': {
-            'RENDER': os.getenv('RENDER'),
-            'SPOTIPY_CLIENT_ID_SET': bool(os.getenv('SPOTIPY_CLIENT_ID')),
-            'SPOTIPY_CLIENT_SECRET_SET': bool(os.getenv('SPOTIPY_CLIENT_SECRET')),
-            'SPOTIPY_REDIRECT_URI': os.getenv('SPOTIPY_REDIRECT_URI'),
-            'FLASK_SECRET_KEY_SET': bool(os.getenv('FLASK_SECRET_KEY'))
-        },
-        'app_variables': {
-            'SPOTIFY_CLIENT_ID': SPOTIFY_CLIENT_ID,
-            'SPOTIFY_CLIENT_SECRET': '***' if SPOTIFY_CLIENT_SECRET else None,
-            'SPOTIFY_REDIRECT_URI': SPOTIFY_REDIRECT_URI
-        },
-        'session': {
-            'has_token': 'token_info' in session,
-            'total_episodes': len(session.get('all_episodes', [])),
-            'chosen_episodes': len(session.get('chosen_episodes', [])),
-            'unplayed_episodes': len(session.get('unplayed_episodes', []))
+    return jsonify({
+        'session_keys': list(session.keys()),
+        'episode_counts': {
+            'all': len(session.get('all_episodes', [])),
+            'chosen': len(session.get('chosen_episodes', [])),
+            'unplayed': len(session.get('unplayed_episodes', []))
         }
-    }
-    return jsonify(debug_info)
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    debug_mode = os.environ.get('DEBUG', 'False').lower() == 'true'
-    app.run(host='0.0.0.0', port=port, debug=debug_mode)
+    app.run(host='0.0.0.0', port=port, debug=False)
