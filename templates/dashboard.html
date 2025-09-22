@@ -80,6 +80,10 @@
             font-weight: bold;
             color: #1DB954;
         }
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -108,9 +112,9 @@
         <div id="statusMessage"></div>
         
         <div class="actions">
-            <button onclick="loadEpisodes()" class="btn">📥 Bölümleri Yükle</button>
+            <button onclick="loadEpisodes()" class="btn" id="loadBtn">📥 Bölümleri Yükle</button>
             <button onclick="viewLists()" class="btn">👁️ Listeleri Görüntüle</button>
-            <button onclick="syncPlaylists()" class="btn">🔄 Spotify'a Senkronize Et</button>
+            <button onclick="syncPlaylists()" class="btn" id="syncBtn">🔄 Spotify'a Senkronize Et</button>
         </div>
         
         <div class="status info">
@@ -127,22 +131,56 @@
             statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
         }
 
+        function setLoading(buttonId, isLoading) {
+            const button = document.getElementById(buttonId);
+            if (button) {
+                if (isLoading) {
+                    button.classList.add('loading');
+                    button.innerHTML = '⏳ Yükleniyor...';
+                } else {
+                    button.classList.remove('loading');
+                    if (buttonId === 'loadBtn') {
+                        button.innerHTML = '📥 Bölümleri Yükle';
+                    } else if (buttonId === 'syncBtn') {
+                        button.innerHTML = '🔄 Spotify\'a Senkronize Et';
+                    }
+                }
+            }
+        }
+
         async function loadEpisodes() {
+            setLoading('loadBtn', true);
+            
             try {
                 const response = await fetch('/load_episodes');
-                const data = await response.json();
+                
+                // Response tipini kontrol et
+                const contentType = response.headers.get('content-type');
+                let data;
+                
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    // JSON değilse, hata mesajını oku
+                    const text = await response.text();
+                    throw new Error(`Server returned: ${text.substring(0, 100)}...`);
+                }
                 
                 if (response.ok) {
                     document.getElementById('totalEpisodes').textContent = data.total_episodes;
                     document.getElementById('chosenEpisodes').textContent = data.chosen_episodes;
                     document.getElementById('unplayedEpisodes').textContent = data.unplayed_episodes;
                     
-                    showMessage(`✅ ${data.total_episodes} bölüm yüklendi! (${data.chosen_episodes} seçilen)`, 'success');
+                    const message = data.message || `✅ ${data.total_episodes} bölüm yüklendi! (${data.chosen_episodes} seçilen)`;
+                    showMessage(message, 'success');
                 } else {
-                    showMessage('❌ Hata: ' + data.error, 'error');
+                    showMessage('❌ Hata: ' + (data.error || data.detail || 'Bilinmeyen hata'), 'error');
                 }
             } catch (error) {
+                console.error('Load error:', error);
                 showMessage('❌ Network hatası: ' + error.message, 'error');
+            } finally {
+                setLoading('loadBtn', false);
             }
         }
 
@@ -151,24 +189,53 @@
         }
 
         async function syncPlaylists() {
+            setLoading('syncBtn', true);
+            
             try {
                 const response = await fetch('/sync_playlists');
-                const data = await response.json();
                 
-                if (response.ok) {
+                // Response tipini kontrol et
+                const contentType = response.headers.get('content-type');
+                let data;
+                
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    const text = await response.text();
+                    throw new Error(`Server returned: ${text.substring(0, 100)}...`);
+                }
+                
+                if (response.ok && data.success) {
                     showMessage(
-                        `✅ Playlist'ler oluşturuldu!<br>
-                         <a href="${data.chosen_playlist}" target="_blank">Rabarba Choosen</a><br>
-                         <a href="${data.unplayed_playlist}" target="_blank">Rabarba Unplayed</a>`, 
+                        `✅ ${data.message}<br>
+                         <a href="${data.chosen_playlist}" target="_blank">🎧 Rabarba Choosen</a><br>
+                         <a href="${data.unplayed_playlist}" target="_blank">⏳ Rabarba Unplayed</a>`, 
                         'success'
                     );
                 } else {
-                    showMessage('❌ Hata: ' + data.error, 'error');
+                    showMessage('❌ Hata: ' + (data.error || data.detail || 'Senkronizasyon başarısız'), 'error');
                 }
             } catch (error) {
+                console.error('Sync error:', error);
                 showMessage('❌ Network hatası: ' + error.message, 'error');
+            } finally {
+                setLoading('syncBtn', false);
             }
         }
+
+        // Sayfa yüklendiğinde istatistikleri getir
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('/get_stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('totalEpisodes').textContent = data.total_episodes;
+                    document.getElementById('chosenEpisodes').textContent = data.chosen_episodes;
+                    document.getElementById('unplayedEpisodes').textContent = data.unplayed_episodes;
+                })
+                .catch(error => {
+                    console.log('Stats load error:', error);
+                });
+        });
     </script>
 </body>
 </html>
