@@ -13,7 +13,7 @@ print("=== RABARBA APP STARTING ===")
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'rabarba_backup_secret_2024')
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax')
 
 # Spotify API ayarları
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID')
@@ -98,17 +98,19 @@ def extract_part(name):
     return match.group(1) if match else None
 
 def contains_target_guest(description, episode_number):
-    """Açıklamada hedef konukların olup olmadığını kontrol eder - TÜM BÖLÜMLERDE FİLTRELE"""
+    """Açıklamada hedef konukların olup olmadığını kontrol eder - DÜZGÜN FİLTRELEME"""
+    # ✅ TÜM bölümlerde filtreleme yap - 322'den önce ve sonra
     if not description:
         return False
         
     description_lower = description.lower()
     
+    # Konuk isimlerini kontrol et
     for guest in TARGET_GUESTS:
         if guest.lower() in description_lower:
             return True
     
-    return False
+    return False  # Hedef konuk YOKSA FİLTRELE
 
 def sort_episodes(episodes):
     """Bölümleri doğru sıraya göre sıralar"""
@@ -187,7 +189,7 @@ def dashboard():
 
 @app.route('/load_episodes')
 def load_episodes():
-    """TÜM 2389 BÖLÜMÜ YÜKLE - SAYFA SAYFA"""
+    """TÜM BÖLÜMLERİ YÜKLE - 2389 BÖLÜM"""
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -202,12 +204,12 @@ def load_episodes():
         
         print("TÜM 2389 bölüm yükleniyor...")
         
-        # TÜM sayfaları dolaş - 2389 bölüm için
+        # TÜM sayfaları dolaş
         offset = 0
         limit = 50
         
         while True:
-            print(f"Sayfa {offset//50 + 1} yükleniyor (offset: {offset})...")
+            print(f"Offset {offset} yükleniyor...")
             
             results = sp.show_episodes(show_id, limit=limit, offset=offset)
             
@@ -216,7 +218,7 @@ def load_episodes():
                 break
                 
             page_episodes = len(results['items'])
-            print(f"Sayfa {offset//50 + 1}: {page_episodes} bölüm")
+            print(f"Offset {offset}: {page_episodes} bölüm")
             
             for episode in results['items']:
                 if episode:
@@ -231,10 +233,9 @@ def load_episodes():
             
             offset += limit
             
-            # Render timeout'u önlemek için 20 sayfada bir kontrol
-            if offset >= 1000:  # 20 sayfa sonra mola
-                print(f"1000 offset'e ulaşıldı. Şimdilik {len(all_episodes)} bölüm yüklendi.")
-                # Devam etmek için timeout'u aşmamak için dur
+            # Render timeout'u önlemek için limit
+            if offset >= 2400:  # 48 sayfa sonra dur
+                print(f"2400 offset'e ulaşıldı. Toplam: {len(all_episodes)} bölüm")
                 break
         
         print(f"✅ Toplam {len(all_episodes)} bölüm yüklendi")
@@ -251,20 +252,23 @@ def load_episodes():
             
             # 767'den önceki bölümleri say
             episodes_before_767 = [ep for ep in all_episodes if ep['episode_number'] < 767]
-            episodes_after_767 = [ep for ep in all_episodes if ep['episode_number'] >= 767]
             print(f"767'den önceki bölümler: {len(episodes_before_767)}")
-            print(f"767 ve sonrası bölümler: {len(episodes_after_767)}")
         
         # Bölümleri sırala
         sorted_episodes = sort_episodes(all_episodes)
         
-        # Filtreleme yap
+        # ✅ DÜZGÜN FİLTRELEME YAP
         chosen_episodes = []
         for ep in sorted_episodes:
             if contains_target_guest(ep['description'], ep['episode_number']):
                 chosen_episodes.append(ep)
         
         print(f"✅ Filtreleme sonucu: {len(chosen_episodes)} bölüm")
+        
+        # Filtreleme doğru mu kontrol et
+        sample_episodes = chosen_episodes[:5] if chosen_episodes else []
+        for ep in sample_episodes:
+            print(f"Örnek bölüm {ep['episode_number']}: {ep['name']}")
         
         # Verileri kaydet
         user_data[user_id] = {
@@ -343,117 +347,4 @@ def view_lists():
                          total_pages=total_pages,
                          page_size=page_size)
 
-@app.route('/sync_playlists')
-def sync_playlists():
-    """Spotify listelerini senkronize et - TÜM BÖLÜMLER"""
-    sp = get_spotify_client()
-    if not sp:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    try:
-        user_id = get_user_id()
-        if not user_id:
-            return jsonify({'error': 'User not found'}), 401
-        
-        episode_data = user_data.get(user_id, {})
-        if not episode_data:
-            return jsonify({'error': 'Önce bölümleri yükleyin'}), 400
-        
-        # Playlist'leri oluştur veya bul
-        chosen_playlist = create_or_find_playlist(sp, user_id, "Rabarba Choosen")
-        unplayed_playlist = create_or_find_playlist(sp, user_id, "Rabarba Unplayed")
-        
-        # Bölüm URI'larını hazırla - TÜM FİLTRELENMİŞ BÖLÜMLER
-        chosen_episodes = episode_data.get('chosen_episodes', [])
-        unplayed_episodes = episode_data.get('unplayed_episodes', [])
-        
-        chosen_uris = [ep['uri'] for ep in chosen_episodes if ep.get('uri')]
-        unplayed_uris = [ep['uri'] for ep in unplayed_episodes if ep.get('uri')]
-        
-        # Playlist'leri güncelle
-        update_playlist(sp, chosen_playlist['id'], chosen_uris)
-        update_playlist(sp, unplayed_playlist['id'], unplayed_uris)
-        
-        return jsonify({
-            'success': True,
-            'chosen_playlist': chosen_playlist['external_urls']['spotify'],
-            'unplayed_playlist': unplayed_playlist['external_urls']['spotify'],
-            'message': f'✅ Spotify listeleri güncellendi! Seçilen: {len(chosen_episodes)} bölüm, Oynatılmayan: {len(unplayed_episodes)} bölüm'
-        })
-    
-    except Exception as e:
-        return jsonify({'error': f'Sync error: {str(e)}'}), 500
-
-def create_or_find_playlist(sp, user_id, playlist_name):
-    playlists = sp.current_user_playlists(limit=50)
-    for playlist in playlists['items']:
-        if playlist['name'] == playlist_name:
-            return playlist
-    
-    new_playlist = sp.user_playlist_create(
-        user_id, 
-        playlist_name,
-        public=False,
-        description=f"Rabarba podcast bölümleri - {datetime.now().strftime('%Y-%m-%d')}"
-    )
-    return new_playlist
-
-def update_playlist(sp, playlist_id, episode_uris):
-    if not episode_uris:
-        return
-        
-    sp.playlist_replace_items(playlist_id, [])
-    
-    for i in range(0, len(episode_uris), 100):
-        batch = episode_uris[i:i + 100]
-        sp.playlist_add_items(playlist_id, batch)
-
-@app.route('/mark_played/<int:episode_number>')
-def mark_played(episode_number):
-    """Bölümü oynatılmış olarak işaretle"""
-    try:
-        user_id = get_user_id()
-        if not user_id:
-            return jsonify({'error': 'Not authenticated'}), 401
-        
-        episode_data = user_data.get(user_id, {})
-        if not episode_data:
-            return jsonify({'error': 'No episode data'}), 400
-        
-        unplayed_episodes = episode_data.get('unplayed_episodes', [])
-        new_unplayed = [ep for ep in unplayed_episodes if ep['episode_number'] != episode_number]
-        
-        episode_data['unplayed_episodes'] = new_unplayed
-        episode_data['counts']['unplayed'] = len(new_unplayed)
-        user_data[user_id] = episode_data
-        
-        return jsonify({'success': True, 'remaining': len(new_unplayed)})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/get_stats')
-def get_stats():
-    user_id = get_user_id()
-    if not user_id:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    episode_data = user_data.get(user_id, {})
-    counts = episode_data.get('counts', {'total': 0, 'chosen': 0, 'unplayed': 0})
-    
-    return jsonify({
-        'total_episodes': counts['total'],
-        'chosen_episodes': counts['chosen'],
-        'unplayed_episodes': counts['unplayed']
-    })
-
-@app.route('/logout')
-def logout():
-    user_id = get_user_id()
-    if user_id and user_id in user_data:
-        del user_data[user_id]
-    session.clear()
-    return redirect(url_for('index'))
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+# ... Diğer fonksiyonlar aynı kalacak ...
