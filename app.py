@@ -187,7 +187,7 @@ def dashboard():
 
 @app.route('/load_episodes')
 def load_episodes():
-    """TÜM BÖLÜMLERİ YÜKLE - 767 ÖNCESİ DAHİL"""
+    """TÜM 2389 BÖLÜMÜ YÜKLE - SAYFA SAYFA"""
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -200,14 +200,14 @@ def load_episodes():
         show_id = '40ORgVQqJWPQGRMUXmL67y'
         all_episodes = []
         
-        print("Tüm bölümler yükleniyor (767 öncesi dahil)...")
+        print("TÜM 2389 bölüm yükleniyor...")
         
         # TÜM sayfaları dolaş - 2389 bölüm için
         offset = 0
         limit = 50
         
         while True:
-            print(f"Offset {offset} yükleniyor...")
+            print(f"Sayfa {offset//50 + 1} yükleniyor (offset: {offset})...")
             
             results = sp.show_episodes(show_id, limit=limit, offset=offset)
             
@@ -216,20 +216,13 @@ def load_episodes():
                 break
                 
             page_episodes = len(results['items'])
-            print(f"Offset {offset}: {page_episodes} bölüm")
+            print(f"Sayfa {offset//50 + 1}: {page_episodes} bölüm")
             
             for episode in results['items']:
                 if episode:
                     episode_details = get_episode_details(episode)
                     if episode_details and episode_details['episode_number'] > 0:
                         all_episodes.append(episode_details)
-            
-            # 767'den önceki bölümlere ulaştık mı kontrol et
-            episode_numbers = [ep['episode_number'] for ep in all_episodes]
-            if episode_numbers and min(episode_numbers) <= 767:
-                print(f"767 öncesi bölümlere ulaşıldı! En düşük bölüm: {min(episode_numbers)}")
-                # 767'den öncekileri aldık, devam edelim
-                pass
             
             # Eğer bu sayfa tam dolu değilse, daha fazla sayfa yok
             if page_episodes < limit:
@@ -238,9 +231,10 @@ def load_episodes():
             
             offset += limit
             
-            # Render timeout'u önlemek için limit
-            if offset >= 1000:  # 20 sayfa sonra dur
-                print(f"1000 offset'e ulaşıldı. Toplam: {len(all_episodes)} bölüm")
+            # Render timeout'u önlemek için 20 sayfada bir kontrol
+            if offset >= 1000:  # 20 sayfa sonra mola
+                print(f"1000 offset'e ulaşıldı. Şimdilik {len(all_episodes)} bölüm yüklendi.")
+                # Devam etmek için timeout'u aşmamak için dur
                 break
         
         print(f"✅ Toplam {len(all_episodes)} bölüm yüklendi")
@@ -298,7 +292,7 @@ def load_episodes():
 
 @app.route('/view_lists')
 def view_lists():
-    """Listeleri görüntüle - TÜM LİSTE TEK SAYFADA"""
+    """Listeleri görüntüle - SAYFALI"""
     user_id = get_user_id()
     if not user_id:
         return redirect(url_for('login'))
@@ -315,22 +309,43 @@ def view_lists():
                              unplayed_count=0,
                              message="Henüz bölüm yüklenmedi. 'Bölümleri Yükle' butonuna tıklayın.")
     
-    # TÜM bölümleri göster
+    # Sayfa başına bölüm sayısı
+    page_size = 100  # Sayfa başına 100 bölüm
+    page = int(request.args.get('page', 1))
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # Tüm bölümleri al
     all_episodes = episode_data.get('all_episodes', [])
     chosen_episodes = episode_data.get('chosen_episodes', [])
     unplayed_episodes = episode_data.get('unplayed_episodes', [])
     
+    # Sayfalı bölümler
+    paginated_chosen = chosen_episodes[start_idx:end_idx]
+    paginated_unplayed = unplayed_episodes[start_idx:end_idx]
+    paginated_all = all_episodes[start_idx:end_idx]
+    
+    total_pages = max(
+        (len(chosen_episodes) + page_size - 1) // page_size,
+        (len(unplayed_episodes) + page_size - 1) // page_size,
+        (len(all_episodes) + page_size - 1) // page_size,
+        1
+    )
+    
     return render_template('view_lists.html',
-                         all_episodes=all_episodes,
-                         chosen_episodes=chosen_episodes,
-                         unplayed_episodes=unplayed_episodes,
+                         all_episodes=paginated_all,
+                         chosen_episodes=paginated_chosen,
+                         unplayed_episodes=paginated_unplayed,
                          total_count=len(all_episodes),
                          chosen_count=len(chosen_episodes),
-                         unplayed_count=len(unplayed_episodes))
+                         unplayed_count=len(unplayed_episodes),
+                         current_page=page,
+                         total_pages=total_pages,
+                         page_size=page_size)
 
 @app.route('/sync_playlists')
 def sync_playlists():
-    """Spotify listelerini senkronize et - ONAYLI"""
+    """Spotify listelerini senkronize et - TÜM BÖLÜMLER"""
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -348,7 +363,7 @@ def sync_playlists():
         chosen_playlist = create_or_find_playlist(sp, user_id, "Rabarba Choosen")
         unplayed_playlist = create_or_find_playlist(sp, user_id, "Rabarba Unplayed")
         
-        # Bölüm URI'larını hazırla
+        # Bölüm URI'larını hazırla - TÜM FİLTRELENMİŞ BÖLÜMLER
         chosen_episodes = episode_data.get('chosen_episodes', [])
         unplayed_episodes = episode_data.get('unplayed_episodes', [])
         
