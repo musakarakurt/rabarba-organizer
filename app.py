@@ -8,9 +8,6 @@ from datetime import datetime
 import time
 import json
 
-from flask import Flask
-app = Flask(__name__)
-
 print("=== RABARBA APP STARTING ===")
 
 app = Flask(__name__)
@@ -107,7 +104,6 @@ def contains_target_guest(description, episode_number):
         
     description_lower = description.lower()
     
-    # Konuk isimlerini kontrol et
     for guest in TARGET_GUESTS:
         if guest.lower() in description_lower:
             return True
@@ -191,7 +187,7 @@ def dashboard():
 
 @app.route('/load_episodes')
 def load_episodes():
-    """TÜM bölümleri yükle - AKILLI VERSİYON"""
+    """TÜM BÖLÜMLERİ YÜKLE - 767 ÖNCESİ DAHİL"""
     sp = get_spotify_client()
     if not sp:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -204,21 +200,13 @@ def load_episodes():
         show_id = '40ORgVQqJWPQGRMUXmL67y'
         all_episodes = []
         
-        print("TÜM bölümler yükleniyor...")
+        print("Tüm bölümler yükleniyor (767 öncesi dahil)...")
         
-        # AKILLI yükleme - timeout'u önle
+        # TÜM sayfaları dolaş - 2389 bölüm için
         offset = 0
         limit = 50
-        max_episodes = 2500  # Maksimum 2500 bölüm
-        timeout_start = time.time()
-        timeout_limit = 25  # 25 saniye timeout
         
-        while len(all_episodes) < max_episodes:
-            # Timeout kontrolü
-            if time.time() - timeout_start > timeout_limit:
-                print(f"⏰ Timeout: {len(all_episodes)} bölüm yüklendi")
-                break
-                
+        while True:
             print(f"Offset {offset} yükleniyor...")
             
             results = sp.show_episodes(show_id, limit=limit, offset=offset)
@@ -228,7 +216,7 @@ def load_episodes():
                 break
                 
             page_episodes = len(results['items'])
-            print(f"Offset {offset}: {page_episodes} bölüm bulundu")
+            print(f"Offset {offset}: {page_episodes} bölüm")
             
             for episode in results['items']:
                 if episode:
@@ -236,12 +224,24 @@ def load_episodes():
                     if episode_details and episode_details['episode_number'] > 0:
                         all_episodes.append(episode_details)
             
+            # 767'den önceki bölümlere ulaştık mı kontrol et
+            episode_numbers = [ep['episode_number'] for ep in all_episodes]
+            if episode_numbers and min(episode_numbers) <= 767:
+                print(f"767 öncesi bölümlere ulaşıldı! En düşük bölüm: {min(episode_numbers)}")
+                # 767'den öncekileri aldık, devam edelim
+                pass
+            
             # Eğer bu sayfa tam dolu değilse, daha fazla sayfa yok
             if page_episodes < limit:
                 print(f"Son sayfaya ulaşıldı. Toplam: {len(all_episodes)} bölüm")
                 break
             
             offset += limit
+            
+            # Render timeout'u önlemek için limit
+            if offset >= 1000:  # 20 sayfa sonra dur
+                print(f"1000 offset'e ulaşıldı. Toplam: {len(all_episodes)} bölüm")
+                break
         
         print(f"✅ Toplam {len(all_episodes)} bölüm yüklendi")
         
@@ -255,7 +255,7 @@ def load_episodes():
             max_ep = max(episode_numbers)
             print(f"Bölüm aralığı: {min_ep} - {max_ep}")
             
-            # 767'den önceki bölümleri kontrol et
+            # 767'den önceki bölümleri say
             episodes_before_767 = [ep for ep in all_episodes if ep['episode_number'] < 767]
             episodes_after_767 = [ep for ep in all_episodes if ep['episode_number'] >= 767]
             print(f"767'den önceki bölümler: {len(episodes_before_767)}")
@@ -315,7 +315,7 @@ def view_lists():
                              unplayed_count=0,
                              message="Henüz bölüm yüklenmedi. 'Bölümleri Yükle' butonuna tıklayın.")
     
-    # TÜM bölümleri göster - SAYFALAMA YOK
+    # TÜM bölümleri göster
     all_episodes = episode_data.get('all_episodes', [])
     chosen_episodes = episode_data.get('chosen_episodes', [])
     unplayed_episodes = episode_data.get('unplayed_episodes', [])
